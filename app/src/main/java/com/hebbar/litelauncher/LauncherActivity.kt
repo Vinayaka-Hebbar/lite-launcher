@@ -66,9 +66,9 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
         super.onCreate(savedInstanceState)
         prefs = PreferencesManager(this)
         workspaceRepo = WorkspaceRepository(this)
-        appRepo = AppRepository(this)
         iconPackManager = IconPackManager(this)
         iconHelper = AdaptiveIconHelper(this, prefs, iconPackManager)
+        appRepo = AppRepository(this, iconHelper)
 
         buildLayout()
         ThemeManager.applyTheme(this, prefs)
@@ -174,9 +174,13 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
 
         setContentView(rootContainer)
 
-        gestureController = LauncherGestureController(this, workspaceView, appDrawer) { rawX, rawY ->
-            showDesktopContextMenuAt(rawX, rawY)
-        }
+        gestureController = LauncherGestureController(
+            this,
+            workspaceView,
+            appDrawer,
+            onOpenDesktopContextMenu = { rawX, rawY -> showDesktopContextMenuAt(rawX, rawY) },
+            onSwipeDownGesture = { openNotificationPanel() }
+        )
 
         interactionController = WorkspaceInteractionController(this, rootContainer, workspaceView, dockView).apply {
             listener = this@LauncherActivity

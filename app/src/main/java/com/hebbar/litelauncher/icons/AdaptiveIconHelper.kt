@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import androidx.collection.LruCache
 import com.hebbar.litelauncher.persistence.PreferencesManager
 import com.hebbar.litelauncher.util.BitmapCache
 
@@ -15,25 +16,34 @@ class AdaptiveIconHelper(
     private val iconPackManager: IconPackManager
 ) {
 
+    private val drawableCache = LruCache<String, Drawable>(250)
+
     fun getAppIcon(packageName: String, activityName: String): Drawable {
         val componentName = ComponentName(packageName, activityName)
-        val cacheKey = "app_icon/${componentName.flattenToShortString()}"
+        val key = componentName.flattenToShortString()
 
-        val cached = BitmapCache.get(cacheKey)
-        if (cached != null) {
-            return BitmapDrawable(context.resources, cached)
+        val cachedDrawable = drawableCache.get(key)
+        if (cachedDrawable != null) {
+            return cachedDrawable
         }
 
-        // Try selected icon pack if enabled
+        val cacheKey = "app_icon/$key"
+        val cachedBitmap = BitmapCache.get(cacheKey)
+        if (cachedBitmap != null) {
+            val drawable = BitmapDrawable(context.resources, cachedBitmap)
+            drawableCache.put(key, drawable)
+            return drawable
+        }
+
         val iconPackPackage = prefs.selectedIconPack
         if (!iconPackPackage.isNullOrEmpty()) {
             val packIcon = iconPackManager.loadIconFromPack(iconPackPackage, componentName)
             if (packIcon != null) {
+                drawableCache.put(key, packIcon)
                 return packIcon
             }
         }
 
-        // Fallback to system application icon
         val systemIcon = try {
             val pm = context.packageManager
             val intent = android.content.Intent().setComponent(componentName)
@@ -45,6 +55,7 @@ class AdaptiveIconHelper(
 
         val bitmap = drawableToBitmap(systemIcon)
         BitmapCache.put(cacheKey, bitmap)
+        drawableCache.put(key, systemIcon)
         return systemIcon
     }
 

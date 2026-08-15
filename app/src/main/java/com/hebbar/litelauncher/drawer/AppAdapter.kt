@@ -45,8 +45,13 @@ class AppAdapter(
             clipToPadding = false
         }
 
+        val iconSizePx = DensityUtil.dpToPx(context, 50f)
+
         val iconView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(iconSizePx, iconSizePx).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
         }
 
         val labelView = TextView(context).apply {
@@ -64,10 +69,7 @@ class AppAdapter(
             val padV = DensityUtil.dpToPx(context, 10f)
             container.setPadding(padH, padV, padH, padV)
 
-            val iconSizePx = DensityUtil.dpToPx(context, 50f)
-            container.addView(iconView, LinearLayout.LayoutParams(iconSizePx, iconSizePx).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-            })
+            container.addView(iconView)
             container.addView(labelView, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -82,10 +84,9 @@ class AppAdapter(
             val padV = DensityUtil.dpToPx(context, 10f)
             container.setPadding(padH, padV, padH, padV)
 
-            val iconSizePx = DensityUtil.dpToPx(context, 48f)
-            container.addView(iconView, LinearLayout.LayoutParams(iconSizePx, iconSizePx).apply {
-                gravity = Gravity.CENTER_VERTICAL
-            })
+            (iconView.layoutParams as LinearLayout.LayoutParams).gravity = Gravity.CENTER_VERTICAL
+
+            container.addView(iconView)
             container.addView(labelView, LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -102,12 +103,6 @@ class AppAdapter(
 
     override fun onBindViewHolder(holder: AppViewHolder, position: Int) {
         val app = apps[position]
-
-        val iconSizePx = DensityUtil.dpToPx(context, 50f)
-        holder.iconView.layoutParams = (holder.iconView.layoutParams as LinearLayout.LayoutParams).apply {
-            width = iconSizePx
-            height = iconSizePx
-        }
 
         holder.labelView.text = app.effectiveLabel
         holder.iconView.setImageDrawable(iconHelper.getAppIcon(app.packageName, app.activityName))

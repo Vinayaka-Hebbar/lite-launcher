@@ -119,16 +119,9 @@ class WorkspaceInteractionController(
                         v.scaleX = 1f
                         v.scaleY = 1f
 
-                        val isUpwardSwipe = dy < 0 && abs(dy) > abs(dx) * 1.5f
-
-                        if (isUpwardSwipe && item !is WorkspaceItem.ClockDateCardItem) {
-                            state = State.GESTURE_ROUTING
-                            Log.d("WorkspaceInteraction", "Upward swipe detected, transitioning to GESTURE_ROUTING")
-                            return gestureController?.onEmptyWorkspaceTouch(event) ?: true
-                        } else {
-                            startDrag(event.rawX, event.rawY)
-                            Log.d("WorkspaceInteraction", "Immediate drag start for item=$item")
-                        }
+                        state = State.GESTURE_ROUTING
+                        Log.d("WorkspaceInteraction", "Swipe detected before long-press, transitioning to GESTURE_ROUTING")
+                        return gestureController?.onEmptyWorkspaceTouch(event) ?: true
                     }
                 } else if (state == State.LONG_PRESS_READY) {
                     if (abs(dx) > touchSlop || abs(dy) > touchSlop) {

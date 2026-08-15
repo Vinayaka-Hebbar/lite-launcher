@@ -130,6 +130,8 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
             layoutManager = GridLayoutManager(context, calculateDynamicColumns())
             clipToPadding = false
             clipChildren = true
+            setHasFixedSize(true)
+            setItemViewCacheSize(20)
             val padH = DensityUtil.dpToPx(context, 12f)
             val padV = DensityUtil.dpToPx(context, 8f)
             setPadding(padH, padV, padH, padV)
@@ -234,7 +236,7 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
         val drawerHeight = if (height > 0) height.toFloat() else context.resources.displayMetrics.heightPixels.toFloat()
         val distance = abs(endP - startP) * drawerHeight
 
-        var duration = (distance / 5f).toLong().coerceIn(100L, 220L)
+        var duration = (distance / 5f).toLong().coerceIn(120L, 240L)
         if (abs(velocityY) > minFlingVelocity) {
             val flingDuration = (distance / (abs(velocityY) / 1000f)).toLong()
             duration = flingDuration.coerceIn(100L, 200L)
@@ -250,7 +252,7 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
 
         activeAnimator = ValueAnimator.ofFloat(startP, endP).apply {
             setDuration(duration)
-            interpolator = DecelerateInterpolator(1.5f)
+            interpolator = DecelerateInterpolator(2.0f)
             addUpdateListener { anim ->
                 val p = anim.animatedValue as Float
                 this@AppDrawerBottomSheet.progress = p
@@ -322,15 +324,22 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                 val dy = ev.getRawY(pointerIndex) - initialTouchY
 
                 if (drawerState == DrawerState.OPEN) {
-                    if (dy > touchSlop && abs(dy) > abs(dx) * 1.2f && !recyclerView.canScrollVertically(-1)) {
+                    val touchYLocal = ev.y
+                    val isHeaderArea = touchYLocal < searchContainer.bottom
+
+                    if (dy > touchSlop && (isHeaderArea || !recyclerView.canScrollVertically(-1))) {
                         drawerState = DrawerState.DRAGGING
-                        Log.d("AppDrawer", "RecyclerAtTop=true Gesture=DOWN TouchOwner=DRAWER")
+                        initialTouchY = ev.getRawY(pointerIndex) - touchSlop
+                        drawerStartTranslationY = translationY
+                        Log.d("AppDrawer", "RecyclerAtTopOrHeader=true Gesture=DOWN TouchOwner=DRAWER")
                         return true
                     }
                     return false
                 } else if (drawerState == DrawerState.PENDING || drawerState == DrawerState.CLOSED) {
                     if (dy < -touchSlop && abs(dy) > abs(dx) * 1.1f) {
                         drawerState = DrawerState.DRAGGING
+                        initialTouchY = ev.getRawY(pointerIndex) + touchSlop
+                        drawerStartTranslationY = translationY
                         Log.d("AppDrawer", "Gesture=UP TouchOwner=DRAWER DrawerState=DRAGGING")
                         return true
                     }
@@ -409,10 +418,10 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                     val vY = vt?.yVelocity ?: 0f
 
                     val targetP = when {
-                        vY < -minFlingVelocity -> 1f
-                        vY > minFlingVelocity -> 0f
-                        progress >= 0.35f -> 1f
-                        else -> 0f
+                        vY > 350f -> 0f   // Flinging down closes drawer
+                        vY < -350f -> 1f  // Flinging up opens drawer
+                        progress < 0.82f -> 0f // Pulling down even 18% closes drawer!
+                        else -> 1f
                     }
                     animateToProgress(targetP, vY)
                 } else if (drawerState == DrawerState.PENDING) {

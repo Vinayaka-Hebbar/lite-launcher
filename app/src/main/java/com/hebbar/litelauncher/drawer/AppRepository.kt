@@ -6,12 +6,15 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import com.hebbar.litelauncher.icons.AdaptiveIconHelper
 import com.hebbar.litelauncher.model.LaunchableApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
-class AppRepository(private val context: Context) {
+class AppRepository(
+    private val context: Context,
+    private val iconHelper: AdaptiveIconHelper? = null
+) {
     private var cachedApps: List<LaunchableApp> = emptyList()
     private val launchCountPrefs = context.getSharedPreferences("app_launch_stats", Context.MODE_PRIVATE)
     private var onAppsChangedListener: (() -> Unit)? = null
@@ -24,7 +27,6 @@ class AppRepository(private val context: Context) {
                 action == Intent.ACTION_PACKAGE_CHANGED ||
                 action == Intent.ACTION_PACKAGE_REPLACED
             ) {
-                // Invalidate cache and notify listener
                 cachedApps = emptyList()
                 onAppsChangedListener?.invoke()
             }
@@ -41,7 +43,7 @@ class AppRepository(private val context: Context) {
             addDataScheme("package")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(packageReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(packageReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             context.registerReceiver(packageReceiver, filter)
         }
@@ -78,7 +80,7 @@ class AppRepository(private val context: Context) {
 
             for (info in resolveInfos) {
                 val pkgName = info.activityInfo.packageName
-                if (pkgName == ownPackageName) continue // Don't list launcher itself in app drawer
+                if (pkgName == ownPackageName) continue
 
                 val actName = info.activityInfo.name
                 val label = info.loadLabel(pm).toString()
@@ -92,6 +94,8 @@ class AppRepository(private val context: Context) {
                 }
 
                 val stats = getLaunchStats(pkgName, actName)
+
+                iconHelper?.getAppIcon(pkgName, actName)
 
                 appsList.add(
                     LaunchableApp(
@@ -127,13 +131,6 @@ class AppRepository(private val context: Context) {
         return Pair(count, time)
     }
 
-    /**
-     * Sort apps list according to selected mode:
-     * 0: Alphabetical
-     * 1: Installation Date (Newest first)
-     * 2: Most Launched
-     * 3: Recently Launched
-     */
     fun sortApps(apps: List<LaunchableApp>, sortMode: Int): List<LaunchableApp> {
         val collator = java.text.Collator.getInstance()
         return when (sortMode) {

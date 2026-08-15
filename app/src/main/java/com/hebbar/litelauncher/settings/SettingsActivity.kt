@@ -2,16 +2,24 @@ package com.hebbar.litelauncher.settings
 
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.ArrayAdapter
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import com.hebbar.litelauncher.R
 import com.hebbar.litelauncher.backup.BackupManager
 import com.hebbar.litelauncher.icons.IconPackManager
 import com.hebbar.litelauncher.model.GestureAction
@@ -26,113 +34,227 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var prefs: PreferencesManager
     private lateinit var backupManager: BackupManager
 
-    private val categories = listOf(
-        "Home Screen",
-        "App Drawer",
-        "Dock",
-        "Folders",
-        "Gestures",
-        "Appearance",
-        "Icon Pack",
-        "Backup & Restore",
-        "Default Launcher",
-        "About"
+    private data class SettingCategory(
+        val title: String,
+        val subtitle: String,
+        val action: (LinearLayout) -> Unit
     )
 
-    private var detailContainer: LinearLayout? = null
+    private data class SettingSection(
+        val sectionTitle: String,
+        val categories: List<SettingCategory>
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
         prefs = PreferencesManager(this)
         backupManager = BackupManager(this, prefs, WorkspaceRepository(this))
 
-        val isTablet2Pane = DensityUtil.isTablet(this) && DensityUtil.isLandscape(this)
-
         val rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#000000"))
+        }
+
+        val headerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.parseColor("#12121B"))
+            gravity = Gravity.CENTER_VERTICAL
+            val padH = DensityUtil.dpToPx(context, 16f)
+            val padV = DensityUtil.dpToPx(context, 16f)
+            setPadding(padH, padV, padH, padV)
         }
 
-        val masterListView = ListView(this).apply {
-            adapter = ArrayAdapter(this@SettingsActivity, android.R.layout.simple_list_item_1, categories)
-            setBackgroundColor(Color.parseColor("#1E1E2E"))
+        val backButton = ImageView(this).apply {
+            setImageDrawable(ContextCompat.getDrawable(this@SettingsActivity, R.drawable.ic_arrow_back))
+            val btnSize = DensityUtil.dpToPx(context, 32f)
+            val pad = DensityUtil.dpToPx(context, 4f)
+            setPadding(pad, pad, pad, pad)
+
+            val typedValue = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, typedValue, true)
+            setBackgroundResource(typedValue.resourceId)
+
+            layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { finish() }
         }
 
-        if (isTablet2Pane) {
-            // Master-Detail 2 Pane Layout
-            rootLayout.addView(masterListView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.35f))
-
-            detailContainer = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(DensityUtil.dpToPx(context, 24f), DensityUtil.dpToPx(context, 24f), DensityUtil.dpToPx(context, 24f), DensityUtil.dpToPx(context, 24f))
-            }
-
-            val scrollView = ScrollView(this).apply {
-                addView(detailContainer)
-            }
-            rootLayout.addView(scrollView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 0.65f))
-
-            masterListView.setOnItemClickListener { _, _, position, _ ->
-                showCategoryDetail(position)
-            }
-            showCategoryDetail(0)
-        } else {
-            rootLayout.addView(masterListView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT))
-            masterListView.setOnItemClickListener { _, _, position, _ ->
-                showCategoryDialog(position)
-            }
+        val headerTitle = TextView(this).apply {
+            text = "Launcher settings"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setPadding(DensityUtil.dpToPx(context, 16f), 0, 0, 0)
         }
 
+        headerLayout.addView(backButton)
+        headerLayout.addView(headerTitle)
+        rootLayout.addView(headerLayout)
+
+        val contentLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padH = DensityUtil.dpToPx(context, 16f)
+            setPadding(padH, 0, padH, DensityUtil.dpToPx(context, 24f))
+        }
+
+        val scrollView = ScrollView(this).apply {
+            addView(contentLayout)
+            clipToPadding = false
+        }
+        rootLayout.addView(scrollView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
+            val statusBarTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            val navBarBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+
+            headerLayout.setPadding(
+                DensityUtil.dpToPx(this, 16f),
+                statusBarTop + DensityUtil.dpToPx(this, 12f),
+                DensityUtil.dpToPx(this, 16f),
+                DensityUtil.dpToPx(this, 12f)
+            )
+
+            scrollView.setPadding(0, 0, 0, navBarBottom + DensityUtil.dpToPx(this, 16f))
+            insets
+        }
+
+        buildSettingSections(contentLayout)
         setContentView(rootLayout)
     }
 
-    private fun showCategoryDetail(index: Int) {
-        val container = detailContainer ?: return
-        container.removeAllViews()
+    private fun buildSettingSections(container: LinearLayout) {
+        val sections = listOf(
+            SettingSection(
+                sectionTitle = "Layout",
+                categories = listOf(
+                    SettingCategory("Home Screen", "Grid size, icon sizes, and workspace labels") { buildHomeScreenSettings(it) },
+                    SettingCategory("Dock", "Icon count, slots, and dock background") { buildDockSettings(it) },
+                    SettingCategory("Folders", "Preview layout and folder appearance") { buildFolderSettings(it) }
+                )
+            ),
+            SettingSection(
+                sectionTitle = "App drawer & gestures",
+                categories = listOf(
+                    SettingCategory("App Drawer", "Sort mode, drawer columns, and list layout") { buildAppDrawerSettings(it) },
+                    SettingCategory("Gestures", "Swipe up, swipe down, and double tap actions") { buildGestureSettings(it) }
+                )
+            ),
+            SettingSection(
+                sectionTitle = "Appearance",
+                categories = listOf(
+                    SettingCategory("Theme mode", "Dark mode, light mode, and system default") { buildAppearanceSettings(it) },
+                    SettingCategory("Icon pack", "Third-party icon packs and icon themes") { buildIconPackSettings(it) }
+                )
+            ),
+            SettingSection(
+                sectionTitle = "System & backup",
+                categories = listOf(
+                    SettingCategory("Backup & restore", "Export or import layout configurations") { buildBackupSettings(it) },
+                    SettingCategory("Default launcher", "Set Lite Launcher as default home app") { openDefaultLauncherSettings(); return@SettingCategory },
+                    SettingCategory("About", "Lite Launcher version and details") { buildAboutSettings(it) }
+                )
+            )
+        )
 
-        val titleView = TextView(this).apply {
-            text = categories[index]
-            textSize = 22f
-            setTextColor(Color.WHITE)
-            setPadding(0, 0, 0, DensityUtil.dpToPx(context, 16f))
-        }
-        container.addView(titleView)
+        for ((secIndex, section) in sections.withIndex()) {
+            val sectionHeader = TextView(this).apply {
+                text = section.sectionTitle
+                textSize = 14f
+                setTextColor(Color.parseColor("#8E8E9F"))
+                val topPad = if (secIndex == 0) DensityUtil.dpToPx(context, 12f) else DensityUtil.dpToPx(context, 20f)
+                val botPad = DensityUtil.dpToPx(context, 8f)
+                setPadding(DensityUtil.dpToPx(context, 4f), topPad, 0, botPad)
+            }
+            container.addView(sectionHeader)
 
-        when (index) {
-            0 -> buildHomeScreenSettings(container)
-            1 -> buildAppDrawerSettings(container)
-            2 -> buildDockSettings(container)
-            3 -> buildFolderSettings(container)
-            4 -> buildGestureSettings(container)
-            5 -> buildAppearanceSettings(container)
-            6 -> buildIconPackSettings(container)
-            7 -> buildBackupSettings(container)
-            8 -> openDefaultLauncherSettings()
-            9 -> buildAboutSettings(container)
+            for ((catIndex, cat) in section.categories.withIndex()) {
+                val cardView = createCategoryCard(cat.title, cat.subtitle) {
+                    if (cat.title == "Default launcher") {
+                        openDefaultLauncherSettings()
+                    } else {
+                        showCategoryDialog(cat.title, cat.action)
+                    }
+                }
+                container.addView(cardView)
+
+                if (catIndex < section.categories.size - 1) {
+                    val spacer = View(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, DensityUtil.dpToPx(context, 8f))
+                    }
+                    container.addView(spacer)
+                }
+            }
         }
     }
 
-    private fun showCategoryDialog(index: Int) {
+    private fun createCategoryCard(title: String, subtitle: String, onClick: () -> Unit): LinearLayout {
+        val cardBg = GradientDrawable().apply {
+            setColor(Color.parseColor("#12121C"))
+            cornerRadius = DensityUtil.dpToPx(this@SettingsActivity, 16f).toFloat()
+        }
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = cardBg
+            val padH = DensityUtil.dpToPx(context, 16f)
+            val padV = DensityUtil.dpToPx(context, 16f)
+            setPadding(padH, padV, padH, padV)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+
+        val textLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val titleTv = TextView(this).apply {
+            text = title
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+        }
+
+        val subtitleTv = TextView(this).apply {
+            text = subtitle
+            textSize = 13f
+            setTextColor(Color.parseColor("#A0A0B0"))
+            setPadding(0, DensityUtil.dpToPx(context, 2f), 0, 0)
+        }
+
+        textLayout.addView(titleTv)
+        textLayout.addView(subtitleTv)
+
+        val chevronTv = TextView(this).apply {
+            text = "›"
+            textSize = 22f
+            setTextColor(Color.parseColor("#606075"))
+            gravity = Gravity.END
+        }
+
+        card.addView(textLayout, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        card.addView(chevronTv)
+
+        return card
+    }
+
+    private fun showCategoryDialog(title: String, buildContent: (LinearLayout) -> Unit) {
         val builder = AlertDialog.Builder(this)
-        builder.setTitle(categories[index])
+        builder.setTitle(title)
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(DensityUtil.dpToPx(context, 16f), DensityUtil.dpToPx(context, 16f), DensityUtil.dpToPx(context, 16f), DensityUtil.dpToPx(context, 16f))
+            val pad = DensityUtil.dpToPx(context, 16f)
+            setPadding(pad, pad, pad, pad)
         }
 
-        when (index) {
-            0 -> buildHomeScreenSettings(container)
-            1 -> buildAppDrawerSettings(container)
-            2 -> buildDockSettings(container)
-            3 -> buildFolderSettings(container)
-            4 -> buildGestureSettings(container)
-            5 -> buildAppearanceSettings(container)
-            6 -> buildIconPackSettings(container)
-            7 -> buildBackupSettings(container)
-            8 -> { openDefaultLauncherSettings(); return }
-            9 -> buildAboutSettings(container)
-        }
+        buildContent(container)
 
         builder.setView(container)
         builder.setPositiveButton("Close", null)
@@ -204,7 +326,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun buildFolderSettings(container: LinearLayout) {
-        addSettingInfo(container, "Folder Preview: 2x2 Grid Thumbnail")
+        addSettingInfo(container, "Folder Preview: 2x2 Grid Thumbnail\nDrag icons into existing folders or onto other icons to merge into folders.")
     }
 
     private fun buildGestureSettings(container: LinearLayout) {
@@ -318,7 +440,7 @@ class SettingsActivity : AppCompatActivity() {
         val tv = TextView(this).apply {
             this.text = text
             textSize = 14f
-            setTextColor(Color.GRAY)
+            setTextColor(Color.parseColor("#A0A0B0"))
             setPadding(0, DensityUtil.dpToPx(context, 8f), 0, DensityUtil.dpToPx(context, 8f))
         }
         container.addView(tv)
