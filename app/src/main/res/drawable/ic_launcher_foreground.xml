@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Home Grid Symbol -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 L78,48 L78,80 C78,82.2 76.2,84 74,84 L34,84 C31.8,84 30,82.2 30,80 L30,48 Z M54,34.5 L36,49.5 L36,78 L48,78 L48,60 L60,60 L60,78 L72,78 L72,49.5 Z" />
+
+    <!-- Upward Fast Launcher Accent Arrow -->
+    <path
+        android:fillColor="#3D5AFE"
+        android:pathData="M54,42 L66,54 L58,54 L58,66 L50,66 L50,54 L42,54 Z" />
+</vector>
