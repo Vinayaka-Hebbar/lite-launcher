@@ -35,15 +35,18 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Signed Release APK
-        run: ./gradlew assembleRelease --no-daemon
+        run: |
+          ./gradlew assembleRelease --no-daemon
+          mkdir -p build_output
+          cp app/build/outputs/apk/release/*.apk build_output/LiteLauncher-${{ github.event.inputs.tag_name }}.apk
 
-      - name: Create GitHub Release & Attach APK
+      - name: Create GitHub Release & Attach Versioned APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name }}
           name: ${{ github.event.inputs.release_name }}
           draft: false
           prerelease: false
-          files: app/build/outputs/apk/release/*.apk
+          files: build_output/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
