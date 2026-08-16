@@ -65,6 +65,7 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
         prefs = PreferencesManager(this)
         workspaceRepo = WorkspaceRepository(this)
         iconPackManager = IconPackManager(this)
@@ -92,16 +93,29 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
     override fun onResume() {
         super.onResume()
         ThemeManager.applyTheme(this, prefs)
-        lifecycleScope.launch {
-            val apps = appRepo.getInstalledApps()
+        if (appRepo.hasCachedApps()) {
+            val apps = appRepo.getCachedApps()
             appDrawer.setApps(apps, prefs)
+        } else {
+            lifecycleScope.launch {
+                val apps = appRepo.getInstalledApps()
+                appDrawer.setApps(apps, prefs)
+            }
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::appDrawer.isInitialized) {
+            appDrawer.close()
+        }
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.hideSoftInputFromWindow(window.decorView.windowToken, 0)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         appRepo.unregisterPackageReceiver()
-        iconHelper.clearCache()
     }
 
     override fun onTrimMemory(level: Int) {

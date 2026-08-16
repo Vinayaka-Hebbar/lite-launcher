@@ -281,6 +281,9 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
     fun close() {
         animateToProgress(0f)
         searchInput.setText("")
+        searchInput.clearFocus()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+        imm?.hideSoftInputFromWindow(searchInput.windowToken, 0)
     }
 
     var isWorkspaceDragging: () -> Boolean = { false }

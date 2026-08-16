@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.LauncherApps
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
@@ -12,6 +13,8 @@ import androidx.collection.LruCache
 import com.hebbar.litelauncher.model.LaunchableApp
 import com.hebbar.litelauncher.persistence.PreferencesManager
 import com.hebbar.litelauncher.util.DensityUtil
+import java.io.File
+import java.io.FileOutputStream
 
 class AdaptiveIconHelper(
     private val context: Context,
@@ -22,6 +25,15 @@ class AdaptiveIconHelper(
     private val cache = LruCache<String, Drawable>(250)
     private val targetIconSize = DensityUtil.dpToPx(context, 54f).coerceAtLeast(144)
     private val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
+
+    private val diskCacheDir: File
+        get() {
+            val dir = File(context.cacheDir, "icons_cache")
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+            return dir
+        }
 
     fun getAppIcon(packageName: String, activityName: String): Drawable {
         if (packageName.isEmpty()) {
@@ -34,13 +46,30 @@ class AdaptiveIconHelper(
             return createCopy(cached)
         }
 
+        val safeFileName = "${packageName}_${activityName.hashCode()}.png"
+        val diskFile = File(diskCacheDir, safeFileName)
+
         val iconPackPackage = prefs.selectedIconPack
+        if (iconPackPackage.isNullOrEmpty() && diskFile.exists() && diskFile.length() > 0) {
+            try {
+                val bitmap = BitmapFactory.decodeFile(diskFile.absolutePath)
+                if (bitmap != null) {
+                    val drawable = BitmapDrawable(context.resources, bitmap)
+                    cache.put(key, drawable)
+                    return createCopy(drawable)
+                }
+            } catch (e: Exception) {
+                diskFile.delete()
+            }
+        }
+
         if (!iconPackPackage.isNullOrEmpty()) {
             val componentName = ComponentName(packageName, activityName.ifEmpty { "Main" })
             val packIcon = iconPackManager.loadIconFromPack(iconPackPackage, componentName)
             if (packIcon != null) {
                 val flattened = renderToTargetDrawable(packIcon)
                 cache.put(key, flattened)
+                saveBitmapToDisk(diskFile, (flattened as BitmapDrawable).bitmap)
                 return createCopy(flattened)
             }
         }
@@ -48,7 +77,41 @@ class AdaptiveIconHelper(
         val rawIcon = loadRawLauncherIcon(packageName, activityName)
         val flattened = renderToTargetDrawable(rawIcon)
         cache.put(key, flattened)
+        saveBitmapToDisk(diskFile, (flattened as BitmapDrawable).bitmap)
         return createCopy(flattened)
+    }
+
+    private fun saveBitmapToDisk(file: File, bitmap: Bitmap) {
+        try {
+            val parent = file.parentFile
+            if (parent != null && !parent.exists()) {
+                parent.mkdirs()
+            }
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun prewarmIcons(apps: List<LaunchableApp>) {
+        for (app in apps) {
+            getAppIcon(app.packageName, app.activityName)
+        }
+    }
+
+    fun clearDiskCache() {
+        cache.evictAll()
+        try {
+            diskCacheDir.listFiles()?.forEach { file -> file.delete() }
+        } catch (e: Exception) {
+            // Ignore
+        }
+    }
+
+    fun clearCache() {
+        cache.evictAll()
     }
 
     private fun createCopy(drawable: Drawable): Drawable {
@@ -66,7 +129,7 @@ class AdaptiveIconHelper(
                     return icon
                 }
             } catch (e: Exception) {
-                // Fallthrough to getApplicationIcon
+                // Fallthrough
             }
         }
 
@@ -76,7 +139,7 @@ class AdaptiveIconHelper(
                 return appIcon
             }
         } catch (e: Exception) {
-            // Fallthrough to LauncherApps
+            // Fallthrough
         }
 
         try {
@@ -86,7 +149,7 @@ class AdaptiveIconHelper(
             }
             info?.getIcon(context.resources.displayMetrics.densityDpi)?.let { return it }
         } catch (e: Exception) {
-            // Fallthrough to default
+            // Fallthrough
         }
 
         return pm.defaultActivityIcon
@@ -101,15 +164,5 @@ class AdaptiveIconHelper(
         drawable.draw(canvas)
 
         return BitmapDrawable(context.resources, bitmap)
-    }
-
-    fun prewarmIcons(apps: List<LaunchableApp>) {
-        for (app in apps) {
-            getAppIcon(app.packageName, app.activityName)
-        }
-    }
-
-    fun clearCache() {
-        cache.evictAll()
     }
 }

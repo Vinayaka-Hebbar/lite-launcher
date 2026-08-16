@@ -15,7 +15,10 @@ class AppRepository(
     private val context: Context,
     private val iconHelper: AdaptiveIconHelper? = null
 ) {
-    private var cachedApps: List<LaunchableApp> = emptyList()
+    companion object {
+        private var staticCachedApps: List<LaunchableApp> = emptyList()
+    }
+
     private val launchCountPrefs = context.getSharedPreferences("app_launch_stats", Context.MODE_PRIVATE)
     private var onAppsChangedListener: (() -> Unit)? = null
 
@@ -27,11 +30,15 @@ class AppRepository(
                 action == Intent.ACTION_PACKAGE_CHANGED ||
                 action == Intent.ACTION_PACKAGE_REPLACED
             ) {
-                cachedApps = emptyList()
+                staticCachedApps = emptyList()
                 onAppsChangedListener?.invoke()
             }
         }
     }
+
+    fun hasCachedApps(): Boolean = staticCachedApps.isNotEmpty()
+
+    fun getCachedApps(): List<LaunchableApp> = staticCachedApps
 
     fun registerPackageReceiver(listener: () -> Unit) {
         onAppsChangedListener = listener
@@ -59,8 +66,8 @@ class AppRepository(
     }
 
     suspend fun getInstalledApps(forceRefresh: Boolean = false): List<LaunchableApp> {
-        if (cachedApps.isNotEmpty() && !forceRefresh) {
-            return cachedApps
+        if (staticCachedApps.isNotEmpty() && !forceRefresh) {
+            return staticCachedApps
         }
 
         return withContext(Dispatchers.IO) {
@@ -109,7 +116,7 @@ class AppRepository(
                 )
             }
 
-            cachedApps = appsList
+            staticCachedApps = appsList
             appsList
         }
     }
@@ -135,9 +142,9 @@ class AppRepository(
         val collator = java.text.Collator.getInstance()
         return when (sortMode) {
             1 -> apps.sortedByDescending { it.installTime }
-            2 -> apps.sortedByDescending { it.launchCount }
-            3 -> apps.sortedByDescending { it.lastLaunchTime }
-            else -> apps.sortedWith { a, b -> collator.compare(a.effectiveLabel, b.effectiveLabel) }
+            2 -> apps.sortedWith(compareByDescending<LaunchableApp> { it.launchCount }.thenBy { it.label })
+            3 -> apps.sortedWith(compareByDescending<LaunchableApp> { it.lastLaunchTime }.thenBy { it.label })
+            else -> apps.sortedWith(Comparator { a, b -> collator.compare(a.label, b.label) })
         }
     }
 }
