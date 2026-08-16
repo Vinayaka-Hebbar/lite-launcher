@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.Scroller
+import com.hebbar.litelauncher.gestures.LauncherGestureController
 import kotlin.math.abs
 
 class WorkspaceView @JvmOverloads constructor(
@@ -33,6 +34,7 @@ class WorkspaceView @JvmOverloads constructor(
     private var isBeingDragged = false
 
     var onPageChangeListener: ((Int) -> Unit)? = null
+    var gestureController: LauncherGestureController? = null
 
     init {
         clipChildren = false
@@ -52,6 +54,10 @@ class WorkspaceView @JvmOverloads constructor(
             val page = CellLayout(context).apply {
                 pageIndex = newPageIndex
                 setGridSize(4, 5)
+                val gc = gestureController
+                if (gc != null) {
+                    setOnTouchListener { _, event -> gc.onEmptyWorkspaceTouch(event) }
+                }
             }
             addView(page)
             temporaryPageCreated = true
@@ -165,10 +171,16 @@ class WorkspaceView @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 initialX = event.x
                 initialY = event.y
+                gestureController?.onItemDown(event.rawX, event.rawY)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.x - initialX
+                val dy = event.y - initialY
+                if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.1f) {
+                    gestureController?.onEmptyWorkspaceTouch(event)
+                    return true
+                }
                 if (isBeingDragged || abs(dx) > touchSlop) {
                     isBeingDragged = true
                     val scrollByX = (initialX - event.x).toInt()
@@ -180,6 +192,7 @@ class WorkspaceView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                gestureController?.onEmptyWorkspaceTouch(event)
                 val vt = velocityTracker
                 vt?.computeCurrentVelocity(1000)
                 val velocityX = vt?.xVelocity ?: 0f

@@ -75,12 +75,16 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
     private var initialTouchY = 0f
     private var drawerStartTranslationY = 0f
     private var hasVibratedOpen = false
+    private var isTouchInHeader = false
+
+    private var iconHelper: AdaptiveIconHelper? = null
 
     fun setup(
         prefs: PreferencesManager,
         iconHelper: AdaptiveIconHelper,
         appRepository: AppRepository
     ) {
+        this.iconHelper = iconHelper
         val drawerBgColor = ContextCompat.getColor(context, R.color.drawer_background)
         setBackgroundColor(drawerBgColor)
         elevation = DensityUtil.dpToPx(context, 16f).toFloat()
@@ -201,6 +205,7 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
     fun setApps(apps: List<LaunchableApp>, prefs: PreferencesManager) {
         this.allApps = apps
         this.hiddenApps = prefs.getHiddenApps()
+        iconHelper?.prewarmIcons(apps)
         filterApps(searchInput.text.toString(), prefs)
     }
 
@@ -265,11 +270,6 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
         activeAnimator?.addListener(object : android.animation.AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: android.animation.Animator) {
                 drawerState = if (endP == 1f) DrawerState.OPEN else DrawerState.CLOSED
-                if (drawerState == DrawerState.OPEN) {
-                    Log.d("AppDrawer", "DrawerState=OPEN TouchOwner=RECYCLER_VIEW")
-                } else {
-                    Log.d("AppDrawer", "DrawerState=CLOSED")
-                }
             }
         })
     }
@@ -306,10 +306,17 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                     activeAnimator?.cancel()
                     drawerState = DrawerState.DRAGGING
                     return true
+                }
+
+                if (drawerState == DrawerState.OPEN) {
+                    val touchYLocal = ev.y
+                    isTouchInHeader = touchYLocal < searchContainer.bottom
                 } else {
-                    drawerState = if (drawerState == DrawerState.OPEN) DrawerState.OPEN else DrawerState.PENDING
+                    isTouchInHeader = false
+                    drawerState = DrawerState.PENDING
                 }
             }
+
             MotionEvent.ACTION_MOVE -> {
                 var pointerIndex = ev.findPointerIndex(activePointerId)
                 if (pointerIndex < 0) {
@@ -324,14 +331,14 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                 val dy = ev.getRawY(pointerIndex) - initialTouchY
 
                 if (drawerState == DrawerState.OPEN) {
-                    val touchYLocal = ev.y
-                    val isHeaderArea = touchYLocal < searchContainer.bottom
+                    if (!isTouchInHeader) {
+                        return false
+                    }
 
-                    if (dy > touchSlop && (isHeaderArea || !recyclerView.canScrollVertically(-1))) {
+                    if (dy > touchSlop) {
                         drawerState = DrawerState.DRAGGING
                         initialTouchY = ev.getRawY(pointerIndex) - touchSlop
                         drawerStartTranslationY = translationY
-                        Log.d("AppDrawer", "RecyclerAtTopOrHeader=true Gesture=DOWN TouchOwner=DRAWER")
                         return true
                     }
                     return false
@@ -340,7 +347,6 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                         drawerState = DrawerState.DRAGGING
                         initialTouchY = ev.getRawY(pointerIndex) + touchSlop
                         drawerStartTranslationY = translationY
-                        Log.d("AppDrawer", "Gesture=UP TouchOwner=DRAWER DrawerState=DRAGGING")
                         return true
                     }
                 }
@@ -393,7 +399,6 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                     translationY = newTransY
 
                     onDrawerProgressListener?.invoke(newProgress)
-                    Log.d("AppDrawer", "DrawerState=DRAGGING progress=%.2f".format(newProgress))
                     return true
                 }
             }
@@ -420,7 +425,7 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                     val targetP = when {
                         vY > 350f -> 0f   // Flinging down closes drawer
                         vY < -350f -> 1f  // Flinging up opens drawer
-                        progress < 0.82f -> 0f // Pulling down even 18% closes drawer!
+                        progress < 0.82f -> 0f
                         else -> 1f
                     }
                     animateToProgress(targetP, vY)

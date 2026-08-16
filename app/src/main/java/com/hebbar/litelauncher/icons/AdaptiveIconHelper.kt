@@ -2,13 +2,16 @@ package com.hebbar.litelauncher.icons
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.LauncherApps
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Process
 import androidx.collection.LruCache
+import com.hebbar.litelauncher.model.LaunchableApp
 import com.hebbar.litelauncher.persistence.PreferencesManager
-import com.hebbar.litelauncher.util.BitmapCache
+import com.hebbar.litelauncher.util.DensityUtil
 
 class AdaptiveIconHelper(
     private val context: Context,
@@ -16,59 +19,88 @@ class AdaptiveIconHelper(
     private val iconPackManager: IconPackManager
 ) {
 
-    private val drawableCache = LruCache<String, Drawable>(250)
+    private val cache = LruCache<String, Drawable>(250)
+    private val targetIconSize = DensityUtil.dpToPx(context, 54f).coerceAtLeast(144)
+    private val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
 
     fun getAppIcon(packageName: String, activityName: String): Drawable {
-        val componentName = ComponentName(packageName, activityName)
-        val key = componentName.flattenToShortString()
-
-        val cachedDrawable = drawableCache.get(key)
-        if (cachedDrawable != null) {
-            return cachedDrawable
+        if (packageName.isEmpty()) {
+            return context.packageManager.defaultActivityIcon
         }
 
-        val cacheKey = "app_icon/$key"
-        val cachedBitmap = BitmapCache.get(cacheKey)
-        if (cachedBitmap != null) {
-            val drawable = BitmapDrawable(context.resources, cachedBitmap)
-            drawableCache.put(key, drawable)
-            return drawable
+        val key = "$packageName/$activityName"
+        val cached = cache.get(key)
+        if (cached != null) {
+            return cached
         }
 
         val iconPackPackage = prefs.selectedIconPack
         if (!iconPackPackage.isNullOrEmpty()) {
+            val componentName = ComponentName(packageName, activityName.ifEmpty { "Main" })
             val packIcon = iconPackManager.loadIconFromPack(iconPackPackage, componentName)
             if (packIcon != null) {
-                drawableCache.put(key, packIcon)
-                return packIcon
+                val flattened = renderToTargetDrawable(packIcon)
+                cache.put(key, flattened)
+                return flattened
             }
         }
 
-        val systemIcon = try {
-            val pm = context.packageManager
-            val intent = android.content.Intent().setComponent(componentName)
-            val resolveInfo = pm.resolveActivity(intent, 0)
-            resolveInfo?.loadIcon(pm) ?: pm.getDefaultActivityIcon()
-        } catch (e: Exception) {
-            context.packageManager.defaultActivityIcon
-        }
-
-        val bitmap = drawableToBitmap(systemIcon)
-        BitmapCache.put(cacheKey, bitmap)
-        drawableCache.put(key, systemIcon)
-        return systemIcon
+        val rawIcon = loadRawSystemIcon(packageName, activityName)
+        val flattened = renderToTargetDrawable(rawIcon)
+        cache.put(key, flattened)
+        return flattened
     }
 
-    private fun drawableToBitmap(drawable: Drawable): Bitmap {
-        if (drawable is BitmapDrawable && drawable.bitmap != null) {
-            return drawable.bitmap
+    private fun loadRawSystemIcon(packageName: String, activityName: String): Drawable {
+        val pm = context.packageManager
+        val componentName = ComponentName(packageName, activityName.ifEmpty { "Main" })
+
+        try {
+            val user = Process.myUserHandle()
+            val activities = launcherApps?.getActivityList(packageName, user)
+            val info = activities?.firstOrNull { it.componentName.className == activityName }
+                ?: activities?.firstOrNull()
+            if (info != null) {
+                val icon = info.getIcon(context.resources.displayMetrics.densityDpi)
+                if (icon != null) return icon
+            }
+        } catch (e: Exception) {
+            // Fallback to PackageManager
         }
-        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 96
-        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 96
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+
+        return try {
+            if (activityName.isNotEmpty()) {
+                pm.getActivityIcon(componentName)
+            } else {
+                pm.getApplicationIcon(packageName)
+            }
+        } catch (e: Exception) {
+            try {
+                pm.getApplicationIcon(packageName)
+            } catch (ex: Exception) {
+                pm.defaultActivityIcon
+            }
+        }
+    }
+
+    private fun renderToTargetDrawable(drawable: Drawable): Drawable {
+        val size = targetIconSize
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        drawable.setBounds(0, 0, canvas.width, canvas.height)
+
+        drawable.setBounds(0, 0, size, size)
         drawable.draw(canvas)
-        return bitmap
+
+        return BitmapDrawable(context.resources, bitmap)
+    }
+
+    fun prewarmIcons(apps: List<LaunchableApp>) {
+        for (app in apps) {
+            getAppIcon(app.packageName, app.activityName)
+        }
+    }
+
+    fun clearCache() {
+        cache.evictAll()
     }
 }

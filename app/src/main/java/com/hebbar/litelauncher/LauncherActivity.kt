@@ -32,6 +32,7 @@ import com.hebbar.litelauncher.notifications.LiteNotificationListener
 import com.hebbar.litelauncher.persistence.PreferencesManager
 import com.hebbar.litelauncher.settings.SettingsActivity
 import com.hebbar.litelauncher.themes.ThemeManager
+import com.hebbar.litelauncher.util.BitmapCache
 import com.hebbar.litelauncher.util.DensityUtil
 import com.hebbar.litelauncher.workspace.CellLayout
 import com.hebbar.litelauncher.workspace.ClockDateCardView
@@ -100,6 +101,15 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
     override fun onDestroy() {
         super.onDestroy()
         appRepo.unregisterPackageReceiver()
+        iconHelper.clearCache()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW || level >= TRIM_MEMORY_BACKGROUND) {
+            iconHelper.clearCache()
+            System.gc()
+        }
     }
 
     private fun buildLayout() {
@@ -181,6 +191,8 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
             onOpenDesktopContextMenu = { rawX, rawY -> showDesktopContextMenuAt(rawX, rawY) },
             onSwipeDownGesture = { openNotificationPanel() }
         )
+
+        workspaceView.gestureController = gestureController
 
         interactionController = WorkspaceInteractionController(this, rootContainer, workspaceView, dockView).apply {
             listener = this@LauncherActivity
@@ -693,11 +705,17 @@ open class LauncherActivity : AppCompatActivity(), WorkspaceInteractionControlle
         try {
             @Suppress("WRONG_DOCUMENTATION_TARGET")
             val statusBarService = getSystemService("statusbar")
-            val statusBarManager = Class.forName("android.app.StatusBarManager")
-            val method = statusBarManager.getMethod("expandNotificationsPanel")
+            val method = statusBarService.javaClass.getMethod("expandNotificationsPanel")
             method.invoke(statusBarService)
         } catch (e: Exception) {
-            Toast.makeText(this, "Could not open notifications", Toast.LENGTH_SHORT).show()
+            try {
+                @Suppress("WRONG_DOCUMENTATION_TARGET")
+                val statusBarService = getSystemService("statusbar")
+                val method = statusBarService.javaClass.getMethod("expand")
+                method.invoke(statusBarService)
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
         }
     }
 

@@ -132,7 +132,8 @@ class LauncherGestureController(
                     velocityTracker = null
                     return true
                 } else if (direction == Direction.SWIPE_DOWN) {
-                    if (event.rawY - downY > touchSlop || vY > 300f) {
+                    val dy = event.rawY - downY
+                    if (dy > touchSlop || vY > 300f) {
                         onSwipeDownGesture()
                     }
                     direction = Direction.UNDECIDED

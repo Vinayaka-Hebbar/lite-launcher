@@ -1,14 +1,12 @@
 package com.hebbar.litelauncher.util
 
 import android.graphics.Bitmap
-import android.graphics.drawable.Drawable
 import android.util.LruCache
 
 object BitmapCache {
-    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
-    private val cacheSize = maxMemory / 8 // 1/8th of memory
+    private const val MAX_CACHE_SIZE_KB = 12 * 1024 // 12 MB max memory cap for bitmaps
 
-    private val cache = object : LruCache<String, Bitmap>(cacheSize) {
+    private val cache = object : LruCache<String, Bitmap>(MAX_CACHE_SIZE_KB) {
         override fun sizeOf(key: String, bitmap: Bitmap): Int {
             return bitmap.byteCount / 1024
         }
@@ -17,7 +15,7 @@ object BitmapCache {
     fun get(key: String): Bitmap? = cache.get(key)
 
     fun put(key: String, bitmap: Bitmap) {
-        if (get(key) == null) {
+        if (get(key) == null && !bitmap.isRecycled) {
             cache.put(key, bitmap)
         }
     }

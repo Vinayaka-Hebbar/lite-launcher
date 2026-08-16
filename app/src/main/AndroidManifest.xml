@@ -20,6 +20,7 @@
             android:launchMode="singleTask"
             android:clearTaskOnLaunch="true"
             android:stateNotNeeded="true"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.LiteLauncher"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density">
             <intent-filter>
