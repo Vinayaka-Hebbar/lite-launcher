@@ -25,13 +25,13 @@ class AdaptiveIconHelper(
 
     fun getAppIcon(packageName: String, activityName: String): Drawable {
         if (packageName.isEmpty()) {
-            return context.packageManager.defaultActivityIcon
+            return createCopy(context.packageManager.defaultActivityIcon)
         }
 
         val key = "$packageName/$activityName"
         val cached = cache.get(key)
         if (cached != null) {
-            return cached
+            return createCopy(cached)
         }
 
         val iconPackPackage = prefs.selectedIconPack
@@ -41,46 +41,55 @@ class AdaptiveIconHelper(
             if (packIcon != null) {
                 val flattened = renderToTargetDrawable(packIcon)
                 cache.put(key, flattened)
-                return flattened
+                return createCopy(flattened)
             }
         }
 
-        val rawIcon = loadRawSystemIcon(packageName, activityName)
+        val rawIcon = loadRawLauncherIcon(packageName, activityName)
         val flattened = renderToTargetDrawable(rawIcon)
         cache.put(key, flattened)
-        return flattened
+        return createCopy(flattened)
     }
 
-    private fun loadRawSystemIcon(packageName: String, activityName: String): Drawable {
+    private fun createCopy(drawable: Drawable): Drawable {
+        return drawable.constantState?.newDrawable()?.mutate() ?: drawable
+    }
+
+    private fun loadRawLauncherIcon(packageName: String, activityName: String): Drawable {
         val pm = context.packageManager
-        val componentName = ComponentName(packageName, activityName.ifEmpty { "Main" })
+        val componentName = ComponentName(packageName, activityName)
+
+        if (activityName.isNotEmpty()) {
+            try {
+                val icon = pm.getActivityIcon(componentName)
+                if (icon != pm.defaultActivityIcon) {
+                    return icon
+                }
+            } catch (e: Exception) {
+                // Fallthrough to getApplicationIcon
+            }
+        }
+
+        try {
+            val appIcon = pm.getApplicationIcon(packageName)
+            if (appIcon != pm.defaultActivityIcon) {
+                return appIcon
+            }
+        } catch (e: Exception) {
+            // Fallthrough to LauncherApps
+        }
 
         try {
             val user = Process.myUserHandle()
-            val activities = launcherApps?.getActivityList(packageName, user)
-            val info = activities?.firstOrNull { it.componentName.className == activityName }
-                ?: activities?.firstOrNull()
-            if (info != null) {
-                val icon = info.getIcon(context.resources.displayMetrics.densityDpi)
-                if (icon != null) return icon
+            val info = launcherApps?.getActivityList(packageName, user)?.run {
+                firstOrNull { it.componentName.className == activityName } ?: firstOrNull()
             }
+            info?.getIcon(context.resources.displayMetrics.densityDpi)?.let { return it }
         } catch (e: Exception) {
-            // Fallback to PackageManager
+            // Fallthrough to default
         }
 
-        return try {
-            if (activityName.isNotEmpty()) {
-                pm.getActivityIcon(componentName)
-            } else {
-                pm.getApplicationIcon(packageName)
-            }
-        } catch (e: Exception) {
-            try {
-                pm.getApplicationIcon(packageName)
-            } catch (ex: Exception) {
-                pm.defaultActivityIcon
-            }
-        }
+        return pm.defaultActivityIcon
     }
 
     private fun renderToTargetDrawable(drawable: Drawable): Drawable {
