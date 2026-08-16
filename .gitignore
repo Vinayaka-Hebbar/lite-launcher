@@ -13,3 +13,13 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Android Build Outputs & Release Artifacts
+*.apk
+*.ap_
+*.aab
+*.dm
+/app/release/
+/app/build/
+*.keystore
+*.jks

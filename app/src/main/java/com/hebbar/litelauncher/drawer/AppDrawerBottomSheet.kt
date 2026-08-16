@@ -331,11 +331,9 @@ class AppDrawerBottomSheet @JvmOverloads constructor(
                 val dy = ev.getRawY(pointerIndex) - initialTouchY
 
                 if (drawerState == DrawerState.OPEN) {
-                    if (!isTouchInHeader) {
-                        return false
-                    }
+                    val isScrolledToTop = !recyclerView.canScrollVertically(-1)
 
-                    if (dy > touchSlop) {
+                    if (dy > touchSlop && (isTouchInHeader || isScrolledToTop)) {
                         drawerState = DrawerState.DRAGGING
                         initialTouchY = ev.getRawY(pointerIndex) - touchSlop
                         drawerStartTranslationY = translationY
