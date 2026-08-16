@@ -8,12 +8,14 @@ import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.animation.DecelerateInterpolator
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -21,10 +23,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.hebbar.litelauncher.R
 import com.hebbar.litelauncher.backup.BackupManager
-import com.hebbar.litelauncher.icons.IconPackManager
-import com.hebbar.litelauncher.model.GestureAction
-import com.hebbar.litelauncher.model.GestureType
-import com.hebbar.litelauncher.model.ThemeMode
 import com.hebbar.litelauncher.persistence.PreferencesManager
 import com.hebbar.litelauncher.util.DensityUtil
 import com.hebbar.litelauncher.workspace.WorkspaceRepository
@@ -33,11 +31,23 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var prefs: PreferencesManager
     private lateinit var backupManager: BackupManager
+    private lateinit var settingsPages: SettingsPages
+    private lateinit var hiddenAppsPage: HiddenAppsPage
+
+    private lateinit var rootContainer: FrameLayout
+    private lateinit var mainPageContainer: View
+    private lateinit var subPageContainer: View
+    private lateinit var subHeaderTitle: TextView
+    private lateinit var subContentContainer: LinearLayout
+    private lateinit var mainHeaderLayout: LinearLayout
+    private lateinit var subHeaderLayout: LinearLayout
+
+    private var isSubPageOpen = false
 
     private data class SettingCategory(
         val title: String,
         val subtitle: String,
-        val action: (LinearLayout) -> Unit
+        val buildPage: (LinearLayout) -> Unit
     )
 
     private data class SettingSection(
@@ -51,13 +61,92 @@ class SettingsActivity : AppCompatActivity() {
 
         prefs = PreferencesManager(this)
         backupManager = BackupManager(this, prefs, WorkspaceRepository(this))
+        settingsPages = SettingsPages(this, prefs, backupManager)
+        hiddenAppsPage = HiddenAppsPage(this, prefs, this)
 
-        val rootLayout = LinearLayout(this).apply {
+        rootContainer = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#000000"))
+        }
+
+        mainPageContainer = buildMainSettingsPage()
+        subPageContainer = buildSubSettingsPage()
+
+        subPageContainer.visibility = View.GONE
+
+        rootContainer.addView(mainPageContainer)
+        rootContainer.addView(subPageContainer)
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (isSubPageOpen) {
+                    closeSubPage()
+                } else {
+                    finish()
+                }
+            }
+        })
+
+        setContentView(rootContainer)
+    }
+
+    private fun openSubPage(title: String, buildContent: (LinearLayout) -> Unit) {
+        subHeaderTitle.text = title
+        subContentContainer.removeAllViews()
+
+        isSubPageOpen = true
+        val width = rootContainer.width.toFloat().takeIf { it > 0 }
+            ?: resources.displayMetrics.widthPixels.toFloat()
+
+        subPageContainer.translationX = width
+        subPageContainer.visibility = View.VISIBLE
+
+        mainPageContainer.animate()
+            .translationX(-width * 0.25f)
+            .setDuration(220)
+            .setInterpolator(DecelerateInterpolator(1.5f))
+            .start()
+
+        subPageContainer.animate()
+            .translationX(0f)
+            .setDuration(220)
+            .setInterpolator(DecelerateInterpolator(1.5f))
+            .withEndAction {
+                buildContent(subContentContainer)
+            }
+            .start()
+    }
+
+    private fun closeSubPage() {
+        if (!isSubPageOpen) return
+        isSubPageOpen = false
+
+        val width = rootContainer.width.toFloat().takeIf { it > 0 }
+            ?: resources.displayMetrics.widthPixels.toFloat()
+
+        mainPageContainer.animate()
+            .translationX(0f)
+            .setDuration(200)
+            .setInterpolator(DecelerateInterpolator(1.5f))
+            .start()
+
+        subPageContainer.animate()
+            .translationX(width)
+            .setDuration(200)
+            .setInterpolator(DecelerateInterpolator(1.5f))
+            .withEndAction {
+                subPageContainer.visibility = View.GONE
+                subContentContainer.removeAllViews()
+            }
+            .start()
+    }
+
+    private fun buildMainSettingsPage(): View {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#000000"))
         }
 
-        val headerLayout = LinearLayout(this).apply {
+        mainHeaderLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             val padH = DensityUtil.dpToPx(context, 16f)
@@ -85,12 +174,13 @@ class SettingsActivity : AppCompatActivity() {
             text = "Launcher settings"
             textSize = 20f
             setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
             setPadding(DensityUtil.dpToPx(context, 16f), 0, 0, 0)
         }
 
-        headerLayout.addView(backButton)
-        headerLayout.addView(headerTitle)
-        rootLayout.addView(headerLayout)
+        mainHeaderLayout.addView(backButton)
+        mainHeaderLayout.addView(headerTitle)
+        root.addView(mainHeaderLayout)
 
         val contentLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -102,17 +192,18 @@ class SettingsActivity : AppCompatActivity() {
             addView(contentLayout)
             clipToPadding = false
         }
-        rootLayout.addView(scrollView, LinearLayout.LayoutParams(
+
+        root.addView(scrollView, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0,
             1f
         ))
 
-        ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val statusBarTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val navBarBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
 
-            headerLayout.setPadding(
+            mainHeaderLayout.setPadding(
                 DensityUtil.dpToPx(this, 16f),
                 statusBarTop + DensityUtil.dpToPx(this, 12f),
                 DensityUtil.dpToPx(this, 16f),
@@ -124,7 +215,85 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         buildSettingSections(contentLayout)
-        setContentView(rootLayout)
+        return root
+    }
+
+    private fun buildSubSettingsPage(): View {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#000000"))
+        }
+
+        subHeaderLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val padH = DensityUtil.dpToPx(context, 16f)
+            val padV = DensityUtil.dpToPx(context, 16f)
+            setPadding(padH, padV, padH, padV)
+        }
+
+        val backButton = ImageView(this).apply {
+            setImageDrawable(ContextCompat.getDrawable(this@SettingsActivity, R.drawable.ic_arrow_back))
+            val btnSize = DensityUtil.dpToPx(context, 32f)
+            val pad = DensityUtil.dpToPx(context, 4f)
+            setPadding(pad, pad, pad, pad)
+
+            val typedValue = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, typedValue, true)
+            setBackgroundResource(typedValue.resourceId)
+
+            layoutParams = LinearLayout.LayoutParams(btnSize, btnSize)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { closeSubPage() }
+        }
+
+        subHeaderTitle = TextView(this).apply {
+            text = "Setting"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(DensityUtil.dpToPx(context, 16f), 0, 0, 0)
+        }
+
+        subHeaderLayout.addView(backButton)
+        subHeaderLayout.addView(subHeaderTitle)
+        root.addView(subHeaderLayout)
+
+        subContentContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val padH = DensityUtil.dpToPx(context, 16f)
+            setPadding(padH, 0, padH, DensityUtil.dpToPx(context, 24f))
+        }
+
+        // Parent container directly holds subContentContainer (no outer ScrollView) so sub-pages can manage sticky headers & scrolling RecyclerViews
+        root.addView(subContentContainer, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0,
+            1f
+        ))
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val statusBarTop = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            val navBarBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+
+            subHeaderLayout.setPadding(
+                DensityUtil.dpToPx(this, 16f),
+                statusBarTop + DensityUtil.dpToPx(this, 12f),
+                DensityUtil.dpToPx(this, 16f),
+                DensityUtil.dpToPx(this, 12f)
+            )
+
+            subContentContainer.setPadding(
+                DensityUtil.dpToPx(this, 16f),
+                0,
+                DensityUtil.dpToPx(this, 16f),
+                navBarBottom + DensityUtil.dpToPx(this, 16f)
+            )
+            insets
+        }
+
+        return root
     }
 
     private fun buildSettingSections(container: LinearLayout) {
@@ -132,31 +301,32 @@ class SettingsActivity : AppCompatActivity() {
             SettingSection(
                 sectionTitle = "Layout",
                 categories = listOf(
-                    SettingCategory("Home Screen", "Grid size, icon sizes, and workspace labels") { buildHomeScreenSettings(it) },
-                    SettingCategory("Dock", "Icon count, slots, and dock background") { buildDockSettings(it) },
-                    SettingCategory("Folders", "Preview layout and folder appearance") { buildFolderSettings(it) }
+                    SettingCategory("Home Screen", "Grid size, icon sizes, and workspace labels") { settingsPages.buildHomeScreenSettingsPage(it) },
+                    SettingCategory("Dock", "Icon count, slots, and dock background") { settingsPages.buildDockSettingsPage(it) },
+                    SettingCategory("Folders", "Preview layout and folder appearance") { settingsPages.buildFolderSettingsPage(it) }
                 )
             ),
             SettingSection(
                 sectionTitle = "App drawer & gestures",
                 categories = listOf(
-                    SettingCategory("App Drawer", "Sort mode, drawer columns, and list layout") { buildAppDrawerSettings(it) },
-                    SettingCategory("Gestures", "Swipe up, swipe down, and double tap actions") { buildGestureSettings(it) }
+                    SettingCategory("App Drawer", "Sort mode, drawer columns, and list layout") { settingsPages.buildAppDrawerSettingsPage(it) },
+                    SettingCategory("Hidden Apps", "Hide or unhide apps") { hiddenAppsPage.build(it) },
+                    SettingCategory("Gestures", "Swipe up, swipe down, and double tap actions") { settingsPages.buildGestureSettingsPage(it) }
                 )
             ),
             SettingSection(
                 sectionTitle = "Appearance",
                 categories = listOf(
-                    SettingCategory("Theme mode", "Dark mode, light mode, and system default") { buildAppearanceSettings(it) },
-                    SettingCategory("Icon pack", "Third-party icon packs and icon themes") { buildIconPackSettings(it) }
+                    SettingCategory("Theme mode", "Dark mode, light mode, and system default") { settingsPages.buildAppearanceSettingsPage(it) },
+                    SettingCategory("Icon pack", "Third-party icon packs and icon themes") { settingsPages.buildIconPackSettingsPage(it) }
                 )
             ),
             SettingSection(
                 sectionTitle = "System & backup",
                 categories = listOf(
-                    SettingCategory("Backup & restore", "Export or import layout configurations") { buildBackupSettings(it) },
+                    SettingCategory("Backup & restore", "Export or import layout configurations") { settingsPages.buildBackupSettingsPage(it) },
                     SettingCategory("Default launcher", "Set Lite Launcher as default home app") { openDefaultLauncherSettings(); return@SettingCategory },
-                    SettingCategory("About", "Lite Launcher version and details") { buildAboutSettings(it) }
+                    SettingCategory("About", "Lite Launcher version and details") { settingsPages.buildAboutSettingsPage(it) }
                 )
             )
         )
@@ -177,7 +347,7 @@ class SettingsActivity : AppCompatActivity() {
                     if (cat.title == "Default launcher") {
                         openDefaultLauncherSettings()
                     } else {
-                        showCategoryDialog(cat.title, cat.action)
+                        openSubPage(cat.title, cat.buildPage)
                     }
                 }
                 container.addView(cardView)
@@ -244,205 +414,17 @@ class SettingsActivity : AppCompatActivity() {
         return card
     }
 
-    private fun showCategoryDialog(title: String, buildContent: (LinearLayout) -> Unit) {
-        val builder = AlertDialog.Builder(this)
-        builder.setTitle(title)
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = DensityUtil.dpToPx(context, 16f)
-            setPadding(pad, pad, pad, pad)
-        }
-
-        buildContent(container)
-
-        builder.setView(container)
-        builder.setPositiveButton("Close", null)
-        builder.show()
-    }
-
-    private fun buildHomeScreenSettings(container: LinearLayout) {
-        addSettingButton(container, "Grid Size: ${prefs.desktopColumns} x ${prefs.desktopRows}") {
-            val options = arrayOf("4 x 5", "4 x 6", "5 x 5", "5 x 6", "6 x 6", "7 x 7")
-            AlertDialog.Builder(this).setItems(options) { _, which ->
-                when (which) {
-                    0 -> { prefs.desktopColumns = 4; prefs.desktopRows = 5 }
-                    1 -> { prefs.desktopColumns = 4; prefs.desktopRows = 6 }
-                    2 -> { prefs.desktopColumns = 5; prefs.desktopRows = 5 }
-                    3 -> { prefs.desktopColumns = 5; prefs.desktopRows = 6 }
-                    4 -> { prefs.desktopColumns = 6; prefs.desktopRows = 6 }
-                    5 -> { prefs.desktopColumns = 7; prefs.desktopRows = 7 }
-                }
-                Toast.makeText(this, "Grid updated", Toast.LENGTH_SHORT).show()
-            }.show()
-        }
-
-        addSettingButton(container, "Icon Size: ${prefs.iconSizeDp} dp") {
-            val options = arrayOf("48 dp", "56 dp", "64 dp", "72 dp")
-            AlertDialog.Builder(this).setItems(options) { _, which ->
-                val sizes = intArrayOf(48, 56, 64, 72)
-                prefs.iconSizeDp = sizes[which]
-                Toast.makeText(this, "Icon size updated", Toast.LENGTH_SHORT).show()
-            }.show()
-        }
-
-        addSettingButton(container, "Show Labels: ${if (prefs.showLabels) "ON" else "OFF"}") {
-            prefs.showLabels = !prefs.showLabels
-            Toast.makeText(this, "Labels updated", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun buildAppDrawerSettings(container: LinearLayout) {
-        addSettingButton(container, "Drawer Columns: ${prefs.drawerColumns}") {
-            val options = arrayOf("4", "5", "6", "7", "8")
-            AlertDialog.Builder(this).setItems(options) { _, which ->
-                prefs.drawerColumns = which + 4
-            }.show()
-        }
-
-        addSettingButton(container, "Drawer Style: ${if (prefs.drawerIsGrid) "Grid" else "List"}") {
-            prefs.drawerIsGrid = !prefs.drawerIsGrid
-        }
-
-        addSettingButton(container, "Sort Mode") {
-            val options = arrayOf("Alphabetical", "Installation Date", "Most Launched", "Recently Launched")
-            AlertDialog.Builder(this).setSingleChoiceItems(options, prefs.drawerSortMode) { dialog, which ->
-                prefs.drawerSortMode = which
-                dialog.dismiss()
-            }.show()
-        }
-    }
-
-    private fun buildDockSettings(container: LinearLayout) {
-        addSettingButton(container, "Dock Enabled: ${if (prefs.dockEnabled) "ON" else "OFF"}") {
-            prefs.dockEnabled = !prefs.dockEnabled
-        }
-        addSettingButton(container, "Dock Icons: ${prefs.dockColumns}") {
-            val options = arrayOf("4", "5", "6", "7")
-            AlertDialog.Builder(this).setItems(options) { _, which ->
-                prefs.dockColumns = which + 4
-            }.show()
-        }
-    }
-
-    private fun buildFolderSettings(container: LinearLayout) {
-        addSettingInfo(container, "Folder Preview: 2x2 Grid Thumbnail\nDrag icons into existing folders or onto other icons to merge into folders.")
-    }
-
-    private fun buildGestureSettings(container: LinearLayout) {
-        addSettingButton(container, "Swipe Up: ${prefs.getGestureAction(GestureType.SWIPE_UP)}") {
-            showGestureActionPicker(GestureType.SWIPE_UP)
-        }
-        addSettingButton(container, "Swipe Down: ${prefs.getGestureAction(GestureType.SWIPE_DOWN)}") {
-            showGestureActionPicker(GestureType.SWIPE_DOWN)
-        }
-        addSettingButton(container, "Double Tap: ${prefs.getGestureAction(GestureType.DOUBLE_TAP)}") {
-            showGestureActionPicker(GestureType.DOUBLE_TAP)
-        }
-    }
-
-    private fun showGestureActionPicker(type: GestureType) {
-        val actions = GestureAction.values()
-        val names = actions.map { it.name }.toTypedArray()
-        AlertDialog.Builder(this).setItems(names) { _, which ->
-            prefs.setGestureAction(type, actions[which])
-        }.show()
-    }
-
-    private fun buildAppearanceSettings(container: LinearLayout) {
-        addSettingButton(container, "Theme: ${prefs.themeMode}") {
-            val modes = ThemeMode.values()
-            val names = modes.map { it.name }.toTypedArray()
-            AlertDialog.Builder(this).setItems(names) { _, which ->
-                prefs.themeMode = modes[which]
-                recreate()
-            }.show()
-        }
-    }
-
-    private fun buildIconPackSettings(container: LinearLayout) {
-        val iconPackManager = IconPackManager(this)
-        val packs = iconPackManager.getAvailableIconPacks()
-        if (packs.isEmpty()) {
-            addSettingInfo(container, "No third-party icon packs detected. System icons in use.")
-        } else {
-            val names = mutableListOf("System Default").apply {
-                addAll(packs.map { it.label })
-            }.toTypedArray()
-
-            addSettingButton(container, "Selected Pack: ${prefs.selectedIconPack ?: "System Default"}") {
-                AlertDialog.Builder(this).setItems(names) { _, which ->
-                    prefs.selectedIconPack = if (which == 0) null else packs[which - 1].packageName
-                    Toast.makeText(this, "Icon pack updated", Toast.LENGTH_SHORT).show()
-                }.show()
-            }
-        }
-    }
-
-    private fun buildBackupSettings(container: LinearLayout) {
-        addSettingButton(container, "Export Layout & Settings Backup") {
-            val jsonStr = backupManager.createBackupJson()
-            val file = getFileStreamPath("lite_launcher_backup.json")
-            file.writeText(jsonStr)
-            Toast.makeText(this, "Backup saved to ${file.name}", Toast.LENGTH_LONG).show()
-        }
-        addSettingButton(container, "Restore Backup") {
-            val file = getFileStreamPath("lite_launcher_backup.json")
-            if (file.exists()) {
-                val success = backupManager.restoreBackupJson(file.readText())
-                if (success) {
-                    Toast.makeText(this, "Backup restored!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Invalid backup format", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, "No backup file found", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
     private fun openDefaultLauncherSettings() {
         try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                val roleManager = getSystemService(android.app.role.RoleManager::class.java)
-                if (roleManager != null && roleManager.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) {
-                    val intent = roleManager.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME)
-                    startActivity(intent)
-                    return
-                }
-            }
-            startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+            val intent = Intent(Settings.ACTION_HOME_SETTINGS)
+            startActivity(intent)
         } catch (e: Exception) {
             try {
-                startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+                val intent = Intent(Settings.ACTION_SETTINGS)
+                startActivity(intent)
             } catch (ex: Exception) {
-                startActivity(Intent(Settings.ACTION_SETTINGS))
+                Toast.makeText(this, "Could not open system home settings", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    private fun buildAboutSettings(container: LinearLayout) {
-        addSettingInfo(container, "Lite Launcher v1.0\nHigh-Performance, Private, Extremely Lightweight Launcher.\nZero Ads | Zero Trackers | Kotlin Native XML")
-    }
-
-    private fun addSettingButton(container: LinearLayout, text: String, onClick: () -> Unit) {
-        val tv = TextView(this).apply {
-            this.text = text
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setPadding(0, DensityUtil.dpToPx(context, 12f), 0, DensityUtil.dpToPx(context, 12f))
-            setOnClickListener { onClick() }
-        }
-        container.addView(tv)
-    }
-
-    private fun addSettingInfo(container: LinearLayout, text: String) {
-        val tv = TextView(this).apply {
-            this.text = text
-            textSize = 14f
-            setTextColor(Color.parseColor("#A0A0B0"))
-            setPadding(0, DensityUtil.dpToPx(context, 8f), 0, DensityUtil.dpToPx(context, 8f))
-        }
-        container.addView(tv)
     }
 }
